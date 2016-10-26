@@ -1,0 +1,118 @@
+Parameters:
+  VPC:
+    Type: "String"
+    Default: "vpc-b71e65d0"
+  Subnets:
+    Type: "CommaDelimitedList"
+    Default: "subnet-a14554f9, subnet-f3aebfd9, subnet-71cf0f38, subnet-85e9f6b8"
+
+Resources:
+
+  ELB:
+    Type: "AWS::ElasticLoadBalancing::LoadBalancer"
+    Properties:
+      Listeners:
+      - LoadBalancerPort: '80'
+        InstancePort: '80'
+        Protocol: HTTP
+      HealthCheck:
+        Target: "HTTP:80/"
+        HealthyThreshold: '3'
+        UnhealthyThreshold: '5'
+        Interval: '30'
+        Timeout: '5'
+      Subnets:
+        Ref: "Subnets"
+      SecurityGroups:
+      - Ref: ELBSecurityGroup
+
+  LC1:
+    Type: "AWS::AutoScaling::LaunchConfiguration"
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            yum:
+              httpd : []
+          services:
+            sysvinit:
+              httpd:
+                enabled: "true"
+                ensureRunning: "true"
+          files:
+            /var/www/html/index.html : 
+              content: |
+                <HTML>
+                <HEAD><TITLE>Launch Config LC1</TITLE></HEAD>
+                <BODY><H1>Launch Config LC1</H1></BODY>
+                </HTML>
+    Properties:
+      KeyName: "acowellpaws"
+      ImageId: "ami-c481fad3"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+
+          yum update -y
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} \
+                   --resource LC1 --region ${AWS::Region}
+
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} \
+                   --resource ASG1 --region ${AWS::Region}
+          uptime
+      InstanceType: "m3.medium"
+      SecurityGroups:
+      - Ref: "InstanceSecurityGroup"
+      AssociatePublicIpAddress: "true"
+
+  ASG1:
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    CreationPolicy:
+      ResourceSignal:
+        Count: "3"
+        Timeout: "PT5M"
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: "true"
+    Properties:
+      LaunchConfigurationName:
+        Ref: "LC1"
+      MinSize: "4"
+      MaxSize: "4"
+      LoadBalancerNames:
+        - Ref: "ELB"
+      VPCZoneIdentifier: 
+        Ref: "Subnets"
+
+       
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http to client host
+      VpcId:
+        Ref: "VPC"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: '192.168.0.0/16'
+         
+    
+  ELBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http ELB
+      VpcId:
+        Ref: "VPC"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+
+         
+    
