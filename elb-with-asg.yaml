@@ -39,13 +39,13 @@ Resources:
               httpd:
                 enabled: "true"
                 ensureRunning: "true"
-          files:
-            /var/www/html/index.html : 
-              content: |
-                <HTML>
-                <HEAD><TITLE>Launch Config LC1</TITLE></HEAD>
-                <BODY><H1>Launch Config LC1</H1></BODY>
-                </HTML>
+          commands:
+            buildhtml:
+              command: |
+                echo "<HEAD><TITLE>Launch Config LC1</TITLE></HEAD>" > /var/www/html/index.html
+                echo "<BODY><H1>Launch Config LC1</H1>" >> /var/www/html/index.html 
+                echo `hostname` >> /var/www/html/index.html 
+                echo "</BODY></HTML>" >> /var/www/html/index.html 
     Properties:
       KeyName: "acowellpaws"
       ImageId: "ami-c481fad3"
@@ -77,8 +77,70 @@ Resources:
     Properties:
       LaunchConfigurationName:
         Ref: "LC1"
-      MinSize: "4"
-      MaxSize: "4"
+      MinSize: "3"
+      MaxSize: "3"
+      LoadBalancerNames:
+        - Ref: "ELB"
+      VPCZoneIdentifier: 
+        Ref: "Subnets"
+
+       
+  LC2:
+    Type: "AWS::AutoScaling::LaunchConfiguration"
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            yum:
+              httpd : []
+              ntp: []
+          services:
+            sysvinit:
+              ntpd:
+                enabled: "true"
+                ensureRunning: "true"
+              httpd:
+                enabled: "true"
+                ensureRunning: "true"
+          commands:
+            buildhtml:
+              command: |
+                echo "<HEAD><TITLE>Launch Config LC2</TITLE></HEAD>" > /var/www/html/index.html
+                echo "<BODY><H1>Launch Config LC2</H1>" >> /var/www/html/index.html 
+                echo `hostname` >> /var/www/html/index.html 
+                echo "</BODY></HTML>" >> /var/www/html/index.html 
+    Properties:
+      KeyName: "acowellpaws"
+      ImageId: "ami-c481fad3"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+
+          yum update -y
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} \
+                   --resource LC2 --region ${AWS::Region}
+
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} \
+                   --resource ASG2 --region ${AWS::Region}
+      InstanceType: "m3.medium"
+      SecurityGroups:
+      - Ref: "InstanceSecurityGroup"
+      AssociatePublicIpAddress: "true"
+
+  ASG2:
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    CreationPolicy:
+      ResourceSignal:
+        Count: "1"
+        Timeout: "PT5M"
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: "true"
+    Properties:
+      LaunchConfigurationName:
+        Ref: "LC2"
+      MinSize: "1"
+      MaxSize: "1"
       LoadBalancerNames:
         - Ref: "ELB"
       VPCZoneIdentifier: 
