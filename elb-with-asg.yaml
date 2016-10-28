@@ -5,6 +5,37 @@ Parameters:
   Subnets:
     Type: "CommaDelimitedList"
     Default: "subnet-a14554f9, subnet-f3aebfd9, subnet-71cf0f38, subnet-85e9f6b8"
+  ASG1Size:
+    Type: Number
+    Default: 4
+  ASG2Size:
+    Type: Number
+    Default: 4
+  ASG1UpdateMechanism:
+    Type: String
+    AllowedValues:
+      - "Rolling"
+      - "Replace"
+    Default: "Rolling"
+  ASG2UpdateMechanism:
+    Type: String
+    AllowedValues:
+      - "Rolling"
+      - "Replace"
+    Default: "Replace"
+  BuildVer:
+    Type: Number
+    Default: 0
+
+Conditions:
+  IsASG1Rolling:
+    Fn::Equals:
+      - Ref: ASG1UpdateMechanism
+      - "Rolling"
+  IsASG2Rolling:
+    Fn::Equals:
+      - Ref: ASG2UpdateMechanism
+      - "Rolling"
 
 Resources:
 
@@ -57,6 +88,8 @@ Resources:
           /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} \
                    --resource LC1 --region ${AWS::Region}
 
+          # BuildVer ${BuildVer}
+
           /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} \
                    --resource ASG1 --region ${AWS::Region}
           uptime
@@ -69,20 +102,31 @@ Resources:
     Type: "AWS::AutoScaling::AutoScalingGroup"
     CreationPolicy:
       ResourceSignal:
-        Count: "3"
+        Count: 
+          Ref: "ASG1Size"
         Timeout: "PT5M"
     UpdatePolicy:
-      AutoScalingReplacingUpdate:
-        WillReplace: "true"
+      Fn::If:
+        - IsASG1Rolling
+        - AutoScalingRollingUpdate:
+            MinSuccessfulInstancesPercent: 100
+        - AutoScalingReplacingUpdate:
+            WillReplace: "true"
     Properties:
       LaunchConfigurationName:
         Ref: "LC1"
-      MinSize: "3"
-      MaxSize: "3"
+      MinSize: 
+        Ref: "ASG1Size"
+      MaxSize:
+        Ref: "ASG1Size"
       LoadBalancerNames:
         - Ref: "ELB"
       VPCZoneIdentifier: 
         Ref: "Subnets"
+      Tags:
+        - Key: "Name"
+          Value: "ASG1"
+          PropagateAtLaunch: "true"
 
        
   LC2:
@@ -108,6 +152,7 @@ Resources:
                 echo "<HEAD><TITLE>Launch Config LC2</TITLE></HEAD>" > /var/www/html/index.html
                 echo "<BODY><H1>Launch Config LC2</H1>" >> /var/www/html/index.html 
                 echo `hostname` >> /var/www/html/index.html 
+                echo v2 >> /var/www/html/index.html 
                 echo "</BODY></HTML>" >> /var/www/html/index.html 
     Properties:
       KeyName: "acowellpaws"
@@ -120,6 +165,8 @@ Resources:
           /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} \
                    --resource LC2 --region ${AWS::Region}
 
+          # BuildVer ${BuildVer}
+
           /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} \
                    --resource ASG2 --region ${AWS::Region}
       InstanceType: "m3.medium"
@@ -131,20 +178,31 @@ Resources:
     Type: "AWS::AutoScaling::AutoScalingGroup"
     CreationPolicy:
       ResourceSignal:
-        Count: "1"
+        Count: 
+          Ref: "ASG2Size"
         Timeout: "PT5M"
     UpdatePolicy:
-      AutoScalingReplacingUpdate:
-        WillReplace: "true"
+      Fn::If:
+        - IsASG2Rolling
+        - AutoScalingRollingUpdate:
+            MinSuccessfulInstancesPercent: 100
+        - AutoScalingReplacingUpdate:
+            WillReplace: "true"
     Properties:
       LaunchConfigurationName:
         Ref: "LC2"
-      MinSize: "1"
-      MaxSize: "1"
+      MinSize: 
+        Ref: "ASG2Size"
+      MaxSize:
+        Ref: "ASG2Size"
       LoadBalancerNames:
         - Ref: "ELB"
       VPCZoneIdentifier: 
         Ref: "Subnets"
+      Tags:
+        - Key: "Name"
+          Value: "ASG2"
+          PropagateAtLaunch: "true"
 
        
   InstanceSecurityGroup:
