@@ -26,6 +26,9 @@ Parameters:
   BuildVer:
     Type: Number
     Default: 0
+  MachineType:
+    Type: String
+    Default: "t2.medium"
 
 Conditions:
   IsASG1Rolling:
@@ -38,6 +41,42 @@ Conditions:
       - "Rolling"
 
 Resources:
+
+  LogAccessRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      Path: "/"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+
+  LogAccessRolePolicies:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "LogAccessRolePolicy"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Action:
+              - "logs:*"
+            Resource:
+              - "arn:aws:logs:*:*:*"
+      Roles:
+        - Ref: LogAccessRole
+
+  LogAccessProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: "/"
+      Roles:
+        - Ref: "LogAccessRole"
 
   ELB:
     Type: "AWS::ElasticLoadBalancing::LoadBalancer"
@@ -65,9 +104,13 @@ Resources:
           packages:
             yum:
               httpd : []
+              awslogs: []
           services:
             sysvinit:
               httpd:
+                enabled: "true"
+                ensureRunning: "true"
+              awslogs:
                 enabled: "true"
                 ensureRunning: "true"
           commands:
@@ -77,6 +120,17 @@ Resources:
                 echo "<BODY><H1>Launch Config LC1</H1>" >> /var/www/html/index.html 
                 echo `hostname` >> /var/www/html/index.html 
                 echo "</BODY></HTML>" >> /var/www/html/index.html 
+            fixawslogs:
+              command: |
+                cat >> /etc/awslogs/awslogs.conf <<EOM
+                datetime_format = %b %d %H:%M:%S
+                file = /var/log/messages
+                buffer_duration = 5000
+                log_stream_name = {instance_id}
+                initial_position = start_of_file
+                log_group_name = /var/log/secure
+                EOM
+
     Properties:
       KeyName: "acowellpaws"
       ImageId: "ami-c481fad3"
@@ -93,10 +147,13 @@ Resources:
           /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} \
                    --resource ASG1 --region ${AWS::Region}
           uptime
-      InstanceType: "m3.medium"
+      InstanceType: 
+        Ref: "MachineType"
       SecurityGroups:
       - Ref: "InstanceSecurityGroup"
       AssociatePublicIpAddress: "true"
+      IamInstanceProfile: 
+        Ref: "LogAccessProfile"
 
   ASG1:
     Type: "AWS::AutoScaling::AutoScalingGroup"
@@ -137,13 +194,13 @@ Resources:
           packages:
             yum:
               httpd : []
-              ntp: []
+              awslogs: []
           services:
             sysvinit:
-              ntpd:
+              httpd:
                 enabled: "true"
                 ensureRunning: "true"
-              httpd:
+              awslogs:
                 enabled: "true"
                 ensureRunning: "true"
           commands:
@@ -154,6 +211,16 @@ Resources:
                 echo `hostname` >> /var/www/html/index.html 
                 echo v2 >> /var/www/html/index.html 
                 echo "</BODY></HTML>" >> /var/www/html/index.html 
+            fixawslogs:
+              command: |
+                cat >> /etc/awslogs/awslogs.conf <<EOM
+                datetime_format = %b %d %H:%M:%S
+                file = /var/log/messages
+                buffer_duration = 5000
+                log_stream_name = {instance_id}
+                initial_position = start_of_file
+                log_group_name = /var/log/secure
+                EOM
     Properties:
       KeyName: "acowellpaws"
       ImageId: "ami-c481fad3"
@@ -169,10 +236,13 @@ Resources:
 
           /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} \
                    --resource ASG2 --region ${AWS::Region}
-      InstanceType: "m3.medium"
+      InstanceType: 
+        Ref: "MachineType"
       SecurityGroups:
       - Ref: "InstanceSecurityGroup"
       AssociatePublicIpAddress: "true"
+      IamInstanceProfile:
+        Ref: "LogAccessProfile"
 
   ASG2:
     Type: "AWS::AutoScaling::AutoScalingGroup"
